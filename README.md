@@ -743,3 +743,233 @@ Break Down into Granular Work Units: Translate high-level milestones into detail
 Sprint Cycles & Check-ins: Work in 1- to 2-week iterations with explicit mini-goals and sprint reviews.
 
 Continuous Integration & Testing: Enforce code quality, automated testing, and review procedures at every pull request to ensure stability throughout development.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ARCHITECTURE DESIGN
+
+
+
+ok, lets start with the architecture design
+
+To build a production-grade system that handles financial integrity, daily data collection, and time-series calculations, we need a clean System Architecture.
+
+Here is the high-level design diagram for the Automated Wealth & Yutai Engine, followed by the architectural breakdown of each component.
+
+
+
+
+System Architecture Diagram
+                             [ USER INTERFACE ]
+                                     │
+                                (REST / GraphQL)
+                                     ▼
+                            [ NODE.JS / TS API ]
+                              (Express / NestJS)
+                                │          │
+            ┌───────────────────┘          └───────────────────┐
+            │                                                  │
+            ▼                                                  ▼
+   [ REDIS CACHE LAYER ]                            [ POSTGRESQL DATABASE ]
+  • Cached Daily Prices                            • Double-Entry Ledger
+  • User Portfolio Summaries                       • Daily Price History
+  • Active Worker Jobs                             • Scraped Yutai Rules
+                                                               ▲
+                                                               │
+                                                       (Cleaned Data)
+                                                               │
+   [ CRON / QUEUE SCHEDULER ] ────(Triggers)───► [ DATA ETL WORKER ]
+     (Daily at 16:00 JST)                        • Web Scraper (Puppeteer/BS4)
+                                                 • LLM Parser (JSON Structuring)
+                                                 • DLQ for Broken Scrapes
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+1. Database Layer: The Core Data Models
+Your database is divided into three logical domain boundaries in PostgreSQL:
+
+A. Ledger Domain (Financial Integrity)
+accounts: Stores cash and investment accounts (id, user_id, account_type [BANK, BROKERAGE, STOCK], currency).
+
+transactions: High-level grouping of a financial event (id, user_id, type [BUY, SELL, DIVIDEND, DEPOSIT], timestamp).
+
+ledger_entries: The immutable double-entry table (id, transaction_id, account_id, ticker, shares_delta, amount_delta).
+
+
+
+B. Market Domain (Time-Series)
+daily_stock_prices: Daily market closes (ticker, date, close_price). Compound primary key on (ticker, date).
+
+C. Yutai & Perks Domain (Scraped Intelligence)
+yutai_perks: Master table of corporate rules (id, ticker, min_shares, holding_period_days, record_months, perk_summary_json).
+
+
+
+2. Caching & Performance Layer (Redis)
+Calculating net worth by summing ledger entries across historical price tables can get expensive as your transaction log grows. Redis solves this:
+
+Market Close Cache: Stores today’s closing prices (price:7203.T -> 2500). When calculating current portfolio values, the API reads from Redis instead of hitting PostgreSQL.
+
+Aggregated Portfolio Cache: Caches the user's computed current balances (portfolio:user_123). Invalidated only when a new transaction is inserted or at market close.
+
+
+
+3. Data Engineering Pipeline (Background Worker)
+The ETL pipeline runs in an isolated container completely detached from your web API:
+
+Trigger: A background worker (using BullMQ or native cron) wakes up at 16:00 JST (after Tokyo market close).
+
+Scrape Task: Iterates through active tickers, pulling HTML templates from financial portals.
+
+Transform Task: Runs raw Japanese text through an LLM structured parser to output clean JSON.
+
+Load & Queue: Inserts clean data into yutai_perks and daily_stock_prices. If a site layout breaks, the payload drops into a Dead Letter Queue (DLQ) table for investigation while the rest of the queue continues processing.
+
+
+
+
+4. Containerization & Environment (DevOps Setup)
+Using Docker Compose, your local development environment mirrors production with isolated services:
+
+app-api: Node.js / TypeScript API.
+
+etl-worker: Node.js / Python background scraping worker.
+
+postgres-db: PostgreSQL instance with custom volume mounts for persistence.
+
+redis-cache: Redis key-value store.
+
+
+
+
+
+
+I'm wondering, how should the documentation for the system architecture be? is this diagram enough for production ready apps?
+
+The short answer is no, a single text block-diagram is not enough for a production-ready application.
+
+While the high-level diagram we just created is a great starting point for brainstorming or whiteboard discussions, production-grade software documentation serves a completely different purpose: it enables maintainability, onboarding, security auditing, and reliable deployment.
+
+If a new engineer joins your team (or if a hiring manager opens your GitHub repository), they need documentation that explains how to run it, how data flows through edge cases, how the system fails safely, and why specific technical tradeoffs were made.
+
+What Production Architecture Documentation Looks Like
+In professional software engineering, architecture documentation is typically split into 4 essential documents placed directly in the repository (or a /docs directory):
+
+
+├── /docs
+│   ├── ARCHITECTURE.md      <-- System Blueprint & C4 Diagram
+│   ├── ADR/                 <-- Architecture Decision Records
+│   │   ├── 0001-use-double-entry-ledger.md
+│   │   └── 0002-bullmq-for-etl-queues.md
+│   ├── DATA_PIPELINE.md     <-- ETL Data Flow & DLQ Handling
+│   └── API_SPEC.md          <-- OpenAPI / GraphQL Schema & Contracts
+└── README.md                <-- Quickstart & Developer Setup
+
+
+
+
+Here is what goes into each document:
+
+1. High-Level Blueprint (The C4 Model)
+Industry standard documentation doesn't use generic box diagrams; it uses the C4 Model (Context, Containers, Components, Code) using tools like Mermaid.js or PlantUML rendered directly in Markdown.
+
+
+
+graph TD
+    User[Client Browser] -->|REST/GraphQL| API[Node.js / TS API]
+    API -->|Read/Write| DB[(PostgreSQL)]
+    API -->|Read/Write Cache| Redis[(Redis)]
+    
+    subgraph Background Processing
+        Cron[BullMQ Scheduler] -->|Trigger 16:00 JST| Worker[ETL Worker]
+        Worker -->|Scrape| Ext[External Financial Sites]
+        Worker -->|Write Market Data| DB
+        Worker -->|Failed Scrapes| DLQ[(Dead Letter Queue)]
+    end
+
+
+
+
+
+    2. Architecture Decision Records (ADRs)
+This is the single most impressive thing you can put in a portfolio repo. An ADR is a short text file that documents why you chose a specific technology or pattern, what alternatives you rejected, and what tradeoffs you accepted.
+
+Example ADR file structure:
+
+ADR-0001: Adopt Double-Entry Ledger Pattern for Portfolio Balance
+
+Status: Accepted
+
+Context: Storing a single current_balance column leads to lost audit history and inability to query historical net worth at arbitrary points in time.
+
+Decision: Implement immutable ledger_entries with balanced DEBIT/CREDIT transactions.
+
+Consequences: Increases initial database write complexity and requires join queries for balances, but guarantees financial integrity and historical time-series queries.
+
+
+
+
+3. Data Flow & Failure Specifications
+Production documentation explicitly addresses failure modes:
+
+What happens when an external scraping site goes down?
+
+How does the system handle database connection drops during an ETL run?
+
+What is the retry policy and rate-limiting strategy?
+
+4. Setup & Infrastructure Specifications (Developer Experience)
+Documentation must include exact steps to spin up the local environment deterministically:
+
+Required environment variables (.env.example).
+
+One-command local startup instructions (docker compose up --build).
+
+Database seed scripts for test data.
+
+
+
+
+
+How to Apply This to Your Portfolio
+To make your portfolio stand out to senior technical reviewers, you don't need to write a 100-page manual. You just need a clean /docs folder with:
+
+README.md: Project overview, core features, architecture diagram, and quickstart commands.
+
+ARCHITECTURE.md: C4 diagram, database ERD (Entity Relationship Diagram), and system boundaries.
+
+docs/ADR/: 2–3 short decision records (e.g., Ledger vs. Snapshot DB, Redis caching strategy).
+
+Writing docs like this proves you think like a Systems Architect who builds maintainable software, not just a developer who writes code that works on their local machine.
+
+
+
