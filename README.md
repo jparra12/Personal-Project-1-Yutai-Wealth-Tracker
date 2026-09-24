@@ -973,3 +973,417 @@ Writing docs like this proves you think like a Systems Architect who builds main
 
 
 
+should that documentation be done after or before starting?
+
+
+
+In production engineering, documentation is neither done all at once before nor delayed until the end. It is an iterative, living process that happens in parallel with development.
+
+Attempting to write 100% of the documentation upfront leads to "Big Design Up Front" (BDUF) syndrome, where your specs become obsolete the moment you write your first line of code. Conversely, leaving all documentation until the very end means you lose track of why you made certain architectural choices, and the documentation ends up being an afterthought.
+
+Here is how you should structure the documentation lifecycle across your 6-month build:
+
+
+
+
+The 3-Stage Documentation Lifecycle
+
+
+
+┌────────────────────────────────────────────────────────────────────────┐
+│ 1. BEFORE WRITING CODE (10%)                                           │
+│    • High-level C4 System Architecture Diagram                         │
+│    • Core Database ERD & Schema Spec                                   │
+│    • Key Technical Objectives & In/Out-of-Scope boundaries             │
+├────────────────────────────────────────────────────────────────────────┤
+│ 2. DURING DEVELOPMENT (70%)                                            │
+│    • Write ADRs whenever you make a major architectural choice         │
+│    • Update OpenAPI / GraphQL schemas alongside API implementation     │
+│    • Keep local setup instructions (docker-compose) accurate           │
+├────────────────────────────────────────────────────────────────────────┤
+│ 3. AT RELEASE / Hardening Phase (20%)                                  │
+│    • Polish top-level README.md (badges, demo video / screenshots)     │
+│    • Finalize API contract docs and deployment runbooks                │
+└────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+Stage 1: Before Writing Code (The "Blueprint")
+Goal: Prevent aimless coding and ensure you have a clear mental model of what you are building.
+
+Before opening your code editor, write down:
+
+System Architecture Blueprint (ARCHITECTURE.md): A high-level diagram (like a C4 container diagram) showing how the Node.js API, PostgreSQL, Redis, and the background ETL worker interact.
+
+Database Schema ERD: The initial table designs for accounts, ledger_entries, daily_stock_prices, and yutai_perks.
+
+Project Scope Boundaries: Explicitly list what you will build first and what you will intentionally ignore to prevent scope creep.
+
+Stage 2: During Development (The "Living Log")
+Goal: Capture decisions while context is fresh in your mind.
+
+As you code over the months:
+
+Architecture Decision Records (ADRs): Every time you make a key architectural choice—such as choosing a Double-Entry Ledger over a simple balance column, or using BullMQ for job queues—take 10 minutes to write a quick ADR file (docs/ADR/0001-double-entry-ledger.md).
+
+API Contracts: Define your endpoints or GraphQL schemas as you implement them, keeping the spec synced with the codebase.
+
+Environment Setup: If you add a new service (e.g., adding Redis to docker-compose.yml), immediately update the environment variables in .env.example.
+
+
+
+
+Stage 3: At Project Completion (The "Showcase")
+Goal: Make your GitHub repository immediately clear and impressive to hiring managers and senior engineers.
+
+In the final weeks of your project:
+
+README.md Polish: Add a clear project summary, system diagram, tech stack badges, and quickstart commands (docker compose up).
+
+Demo & Walkthrough: Include a quick GIF, architecture walkthrough, or video demo showing the ETL pipeline and dashboard in action.
+
+Reflect & Post-Mortem: Document what went well, technical bottlenecks encountered, and potential future improvements.
+
+Why This Works for Your Portfolio
+By documenting incrementally:
+
+You avoid spending weeks writing specs for things that might change.
+
+Your GitHub git commit history shows hiring managers that you write docs, ADRs, and tests alongside feature code—just like a senior engineer in a real engineering team.
+
+
+
+
+
+
+
+ok, could you help me to do the c4 diagram?
+
+
+
+The C4 Model (Context, Containers, Components, Code) is the gold standard for software architecture documentation. For production-ready documentation, we usually model the first two levels: Context (Level 1) and Containers (Level 2).
+
+Below is the complete C4 architecture specification for Project 1 (Automated Wealth & Yutai Engine) written in Mermaid.js, which renders natively inside GitHub Markdown files (ARCHITECTURE.md).
+
+Level 1: System Context Diagram
+This diagram shows how your system fits into the world: who uses it, and what external services it interacts with.
+
+
+
+
+
+C4Context
+    title System Context Diagram - Automated Wealth & Yutai Engine
+
+    Person(user, "Individual Investor", "A user tracking net worth, portfolio ledger, and Japanese corporate shareholder benefits (Yutai).")
+    
+    System(wealthSystem, "Automated Wealth & Yutai Engine", "Ingests daily stock prices, manages double-entry ledger accounts, tracks Yutai perks, and alerts users of qualification deadlines.")
+    
+    System_Ext(tseData, "Financial Data Providers / Web Portals", "Public TSE market closing data and corporate shareholder perk releases.")
+    System_Ext(llmApi, "LLM Extraction Service (e.g. OpenAI / Anthropic)", "Converts unstructured Japanese financial text into structured JSON.")
+
+    Rel(user, wealthSystem, "Views portfolio dashboard, logs transactions, receives perk alerts", "HTTPS / REST / GraphQL")
+    Rel(wealthSystem, tseData, "Scrapes closing market prices and Yutai perk rules", "HTTPS / Scraping")
+    Rel(wealthSystem, llmApi, "Sends raw scraped text for structured JSON transformation", "HTTPS / API")
+
+
+
+
+
+
+
+
+
+
+    Level 2: Container Diagram
+This is the most important diagram for backend and DevOps engineering. It shows the high-level technical building blocks (containers, databases, queues, workers) and how data flows between them.
+
+
+
+
+C4Container
+    title Container Diagram - Automated Wealth & Yutai Engine
+
+    Person(user, "User / Investor", "Manages portfolio and monitors Yutai benefits.")
+
+    Container_Boundary(appBoundary, "Automated Wealth & Yutai Ecosystem") {
+        Container(frontend, "Frontend Dashboard", "React / TypeScript / Tailwind", "Visualizes portfolio net worth, dividend calendars, and Yutai perk timelines.")
+        
+        Container(api, "Core Backend API", "Node.js / Express or NestJS / TypeScript", "Handles authentication, ledger logic, time-series net worth calculations, and REST/GraphQL requests.")
+        
+        Container(worker, "ETL Data Pipelines", "Node.js or Python Worker / Puppeteer", "Scheduled background jobs that scrape market closes and parse Yutai perk rules.")
+        
+        Container(queue, "Task Queue & Scheduler", "Redis / BullMQ", "Schedules daily 16:00 JST market close jobs and manages retry / DLQ states for failed scrapes.")
+        
+        ContainerDb(cache, "In-Memory Cache", "Redis", "Caches daily market prices, active user session tokens, and computed net worth summaries.")
+        
+        ContainerDb(database, "Relational Database", "PostgreSQL", "Stores user accounts, immutable double-entry ledger entries, historical stock prices, and structured Yutai perk rules.")
+    }
+
+    System_Ext(tseData, "Financial Data Portals", "External Japanese market sites.")
+    System_Ext(llmApi, "LLM Extraction Service", "Structured text parsing API.")
+
+    Rel(user, frontend, "Uses", "HTTPS")
+    Rel(frontend, api, "API calls", "JSON / HTTPS")
+    
+    Rel(api, cache, "Reads/Writes cached prices & summaries", "Redis Protocol")
+    Rel(api, database, "Executes ledger & time-series SQL queries", "SQL / TCP")
+    
+    Rel(queue, worker, "Triggers ETL jobs & handles retries", "Redis Protocol")
+    Rel(worker, tseData, "Scrapes daily HTML pages", "HTTPS")
+    Rel(worker, llmApi, "Parses unstructured Japanese text", "HTTPS / REST")
+    Rel(worker, database, "Writes cleaned market prices & Yutai rules", "SQL / TCP")
+
+
+
+
+How to Save This in Your Repository
+To make this immediately production-ready in your portfolio repository:
+
+Create a file at docs/ARCHITECTURE.md.
+
+Add a short introductory section describing the primary goal of the system.
+
+Paste the Mermaid code blocks above inside markdown code fences (mermaid ... ). GitHub will automatically render them as interactive visual diagrams!
+
+
+
+
+ok, I would like to continue with the postgresql database schema
+
+
+Here is the production-ready PostgreSQL Database Schema for Project 1 (Automated Wealth & Yutai Engine).
+
+It is structured into three clean domain boundaries:
+
+Ledger Domain: Multi-account double-entry bookkeeping (immutable audit trail).
+
+Market Domain: Time-series daily stock prices.
+
+Yutai & Perks Domain: Scraped corporate perks, qualification rules, and tracking.
+
+Entity Relationship Diagram (ERD)
+
+
+
+erDiagram
+    users ||--o{ accounts : "owns"
+    users ||--o{ transactions : "initiates"
+    
+    accounts ||--o{ ledger_entries : "has balance entries"
+    transactions ||--o{ ledger_entries : "contains balancing debits/credits"
+    
+    stocks ||--o{ daily_stock_prices : "has historical closes"
+    stocks ||--o{ yutai_perks : "has shareholder benefits"
+    
+    yutai_perks ||--o{ user_yutai_qualifications : "tracks user eligibility"
+    users ||--o{ user_yutai_qualifications : "qualifies for"
+
+    users {
+        uuid id PK
+        string email
+        string password_hash
+        timestamp created_at
+    }
+
+    accounts {
+        uuid id PK
+        uuid user_id FK
+        string account_name
+        string account_type
+        string currency
+    }
+
+    transactions {
+        uuid id PK
+        uuid user_id FK
+        string transaction_type
+        string description
+        timestamp transaction_time
+    }
+
+    ledger_entries {
+        uuid id PK
+        uuid transaction_id FK
+        uuid account_id FK
+        string ticker FK
+        numeric share_quantity
+        numeric amount
+        timestamp created_at
+    }
+
+    stocks {
+        string ticker PK
+        string company_name
+        string sector
+    }
+
+    daily_stock_prices {
+        string ticker PK, FK
+        date price_date PK
+        numeric close_price
+    }
+
+    yutai_perks {
+        uuid id PK
+        string ticker FK
+        integer min_shares
+        integer min_holding_days
+        jsonb record_months
+        jsonb perk_details
+    }
+
+    user_yutai_qualifications {
+        uuid id PK
+        uuid user_id FK
+        uuid yutai_perk_id FK
+        string status
+        date target_record_date
+    }
+
+
+
+
+DDL SQL Implementation
+Here is the exact DDL SQL to define these tables with strict financial constraints, Foreign Keys, and time-series composite indexes in PostgreSQL:
+
+
+
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- =============================================================================
+-- 1. USER & ACCOUNT DOMAIN
+-- =============================================================================
+
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TYPE account_type_enum AS ENUM ('CASH_BANK', 'CASH_BROKERAGE', 'EQUITY', 'YUTAI_WALLET');
+
+CREATE TABLE accounts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    account_name VARCHAR(100) NOT NULL,
+    account_type account_type_enum NOT NULL,
+    currency VARCHAR(3) NOT NULL DEFAULT 'JPY',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
+-- 2. IMMUTABLE DOUBLE-ENTRY LEDGER DOMAIN
+-- =============================================================================
+
+CREATE TYPE transaction_type_enum AS ENUM ('DEPOSIT', 'WITHDRAWAL', 'BUY_STOCK', 'SELL_STOCK', 'DIVIDEND', 'YUTAI_RECEIPT');
+
+CREATE TABLE transactions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    transaction_type transaction_type_enum NOT NULL,
+    description TEXT,
+    transaction_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE stocks (
+    ticker VARCHAR(10) PRIMARY KEY, -- e.g. "7203.T"
+    company_name VARCHAR(255) NOT NULL,
+    sector VARCHAR(100),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE ledger_entries (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    transaction_id UUID NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+    ticker VARCHAR(10) REFERENCES stocks(ticker), -- NULL for cash-only entries
+    
+    -- Numerical precision for exact financial accounting
+    share_quantity NUMERIC(12, 4) DEFAULT 0.0000, 
+    amount NUMERIC(15, 2) NOT NULL, -- Positive for DEBIT (TO), Negative for CREDIT (FROM)
+    
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Performance index for running balance queries per account & date
+CREATE INDEX idx_ledger_account_time ON ledger_entries(account_id, created_at);
+CREATE INDEX idx_ledger_ticker ON ledger_entries(ticker) WHERE ticker IS NOT NULL;
+
+-- =============================================================================
+-- 3. MARKET DATA DOMAIN (TIME-SERIES)
+-- =============================================================================
+
+CREATE TABLE daily_stock_prices (
+    ticker VARCHAR(10) REFERENCES stocks(ticker) ON DELETE CASCADE,
+    price_date DATE NOT NULL,
+    close_price NUMERIC(12, 2) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    
+    PRIMARY KEY (ticker, price_date)
+);
+
+-- Index to fast-query historical closing price lookups across date ranges
+CREATE INDEX idx_stock_prices_date ON daily_stock_prices(price_date DESC);
+
+-- =============================================================================
+-- 4. YUTAI & PERKS DOMAIN (SCRAPED INTELLIGENCE)
+-- =============================================================================
+
+CREATE TABLE yutai_perks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    ticker VARCHAR(10) NOT NULL REFERENCES stocks(ticker) ON DELETE CASCADE,
+    min_shares INT NOT NULL DEFAULT 100,
+    min_holding_days INT NOT NULL DEFAULT 0, -- 0 = no continuous holding requirement
+    record_months JSONB NOT NULL, -- e.g. [3, 9] for March & September
+    perk_details JSONB NOT NULL, -- Structured JSON of category, valuation, voucher description
+    last_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TYPE yutai_status_enum AS ENUM ('NOT_ELIGIBLE', 'PENDING_QUALIFICATION', 'QUALIFIED', 'CLAIMED', 'EXPIRED');
+
+CREATE TABLE user_yutai_qualifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    yutai_perk_id UUID NOT NULL REFERENCES yutai_perks(id) ON DELETE CASCADE,
+    status yutai_status_enum NOT NULL DEFAULT 'NOT_ELIGIBLE',
+    target_record_date DATE NOT NULL,
+    notes TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE (user_id, yutai_perk_id, target_record_date)
+);
+
+CREATE INDEX idx_user_yutai_status ON user_yutai_qualifications(user_id, status);
+
+
+Key Architectural Features of This Schema
+Immutable Double-Entry Mechanics:
+
+Entries are never updated. Buying stock inserts 1 row in transactions and 2 balancing rows in ledger_entries (e.g., -¥250,000 from Brokerage Cash, +¥250,000 / +100 shares into Toyota Equity Account).
+
+Exact Currency Precision:
+
+Uses NUMERIC(15, 2) and NUMERIC(12, 4) instead of FLOAT or REAL to eliminate floating-point rounding errors in cash and share calculations.
+
+Compound Key Time-Series:
+
+daily_stock_prices uses (ticker, price_date) as its composite primary key, guaranteeing only 1 price entry per stock per business day while enabling hyper-fast range scans.
+
+Flexible JSONB for Perks:
+
+yutai_perks.perk_details uses PostgreSQL JSONB so the ETL worker can store structured fields (like voucher values or gift categories) without requiring rigid schema alterations whenever scrapers discover new perk categories.
+
+Saving This in Your Repository
+Put this directly in your repository at:
+
+/docs/ARCHITECTURE.md (under a Database Schema section)
+
+/migrations/001_initial_schema.sql (as your first database migration script)
+
+
+
+
